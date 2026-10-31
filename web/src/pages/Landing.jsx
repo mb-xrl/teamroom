@@ -47,8 +47,8 @@ const PILLARS = [
   },
 ];
 
-const RELEASES_URL = 'https://github.com/mb-xrl/startup/releases/latest';
-const SOURCE_URL = 'https://github.com/mb-xrl/startup';
+const RELEASES_URL = 'https://github.com/mb-xrl/teamroom/releases/latest';
+const SOURCE_URL = 'https://github.com/mb-xrl/teamroom';
 
 export default function Landing() {
   return (
@@ -424,7 +424,7 @@ function BoardFooter() {
             </tr>
             <tr>
               <td className="lb-note">License</td><td>MIT</td>
-              <td className="lb-note">Source</td><td><a href={SOURCE_URL}>github.com/mb-xrl/startup</a></td>
+              <td className="lb-note">Source</td><td><a href={SOURCE_URL}>github.com/mb-xrl/teamroom</a></td>
             </tr>
           </tbody>
         </table>

@@ -137,6 +137,21 @@ function migrate() {
       PRIMARY KEY (channel_id, user_id)
     );
 
+    CREATE TABLE IF NOT EXISTS reactions (
+      message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      emoji TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (message_id, user_id, emoji)
+    );
+
+    CREATE TABLE IF NOT EXISTS channel_reads (
+      channel_id TEXT NOT NULL,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      last_read_at INTEGER NOT NULL,
+      PRIMARY KEY (channel_id, user_id)
+    );
+
     CREATE TABLE IF NOT EXISTS notifications (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -150,6 +165,9 @@ function migrate() {
     CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id, position);
     CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, created_at DESC);
   `);
+  // incremental migration: IF NOT EXISTS cannot add columns to pre-existing tables
+  const msgCols = all(`PRAGMA table_info(messages)`).map(c => c.name);
+  if (!msgCols.includes('edited_at')) db.exec(`ALTER TABLE messages ADD COLUMN edited_at INTEGER`);
 }
 
 export function persist() {

@@ -30,6 +30,7 @@ export default function App() {
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [onlineUsers, setOnlineUsers] = useState(new Map());
+  const [users, setUsers] = useState([]);
   const [route, nav] = useRoute();
 
   useEffect(() => {
@@ -77,7 +78,9 @@ export default function App() {
     offs.push(rt.on('presence:roster', (ev) => {
       const m = new Map(); for (const u of ev.users) m.set(u.id, u); setOnlineUsers(m);
     }));
-    offs.push(rt.on('user:join', (ev) => toast(`${ev.user.name} joined the team`, 'success')));
+    offs.push(rt.on('user:join', (ev) => { toast(`${ev.user.name} joined the team`, 'success'); setUsers(us => us.some(u => u.id === ev.user.id) ? us : [...us, ev.user]); }));
+    offs.push(rt.on('user:update', (ev) => setUsers(us => us.map(u => u.id === ev.user.id ? ev.user : u))));
+    offs.push(rt.on('user:leave', (ev) => setUsers(us => us.filter(u => u.id !== ev.userId))));
     offs.push(rt.on('file:new', (ev) => toast(`${ev.uploader.name} uploaded ${ev.file.name}`, 'info')));
     offs.push(rt.on('project:create', () => toast('New project created', 'success')));
     return () => offs.forEach(f => f());
@@ -85,6 +88,7 @@ export default function App() {
 
   useEffect(() => {
     if (!user) return;
+    api.get('/api/users').then(r => setUsers(r.users)).catch(() => {});
     api.get('/api/notifications').then(n => {
       setNotifications(n.notifications.map(x => ({ ...x, read: !!x.readAt, kind: x.type, title: x.payload.title || x.type, body: x.payload.body || '' })));
       setUnreadCount(n.notifications.filter(x => !x.readAt).length);
@@ -130,7 +134,7 @@ export default function App() {
     activeChannel, setActiveChannel,
     toasts, toast,
     notifications, setNotifications, unreadCount, setUnreadCount, markAllRead,
-    onlineUsers, rt, nav
+    onlineUsers, users, rt, nav
   };
 
   if (!ready) {

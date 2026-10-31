@@ -37,6 +37,28 @@ export function ringSince(cursor) {
 // ---- Noop hub: records events, no websockets ----
 class NoopHub {
   publish() {}
+  subscribeUserToChannel() {}
+  persistMessage(user, channel, text, replyTo) {
+    const id = nanoid(12);
+    const now = Date.now();
+    run(`INSERT INTO messages (id, channel_id, author_id, text, reply_to, created_at) VALUES (?,?,?,?,?,?)`,
+      [id, channel, user.id, text, replyTo, now]);
+    return { id, channel, text, replyTo, createdAt: now, author: publicUser(user), reactions: [] };
+  }
+  broadcastMessage(message, actor) {
+    this.publish('channel:' + message.channel, { type: 'chat:message', message });
+    this.notifyChannelMembers(message, actor);
+  }
+  notifyChannelMembers(message, actor) {
+    if (!message.channel.startsWith('project:')) return;
+    const projectId = message.channel.slice('project:'.length);
+    const members = all(`SELECT u.* FROM users u JOIN project_members pm ON pm.user_id = u.id WHERE pm.project_id = ?`, [projectId]);
+    for (const m of members) if (m.id !== actor.id) this.sendToUser(m.id, {
+      type: 'notification',
+      notification: { id: nanoid(10), type: 'chat:mention', title: `${actor.name} in #${projectId}`, body: message.text.slice(0,120), createdAt: message.createdAt, read: false }
+    });
+  }
+  emitToChannel(channel, ev) { ringPush({ scope: 'channel', channel, ...ev }); }
   sendToUser(userId, ev) { ringPush({ scope: 'user', userId, ...ev }); }
   broadcast(kind, data) { ringPush({ scope: 'global', type: kind, ...data }); }
   emitTaskChanged(projectId, task, actor, action='update') {
@@ -112,6 +134,12 @@ class WsHub extends NoopHub {
     ringPush(ev);
     for (const ctx of this.clients.values()) if (ctx.channels.has(topic)) this.send(ctx.ws, ev);
   }
+  subscribeUserToChannel(userId, channelId) {
+    for (const c of this.clients.values()) if (c.user && c.user.id === userId) c.channels.add('channel:' + channelId);
+  }
+  emitToChannel(channel, ev) {
+    this.publish('channel:' + channel, ev);
+  }
   broadcast(kind, data) {
     const ev = { type: kind, ...data };
     ringPush(ev);
@@ -133,19 +161,23 @@ class WsHub extends NoopHub {
   async handleChatMessage(ctx, msg) {
     const { text, channel='global', replyTo } = msg;
     if (!text || !text.trim()) return;
-    const id = nanoid(12);
-    const now = Date.now();
-    run(`INSERT INTO messages (id, channel_id, author_id, text, reply_to, created_at) VALUES (?,?,?,?,?,?)`,
-      [id, channel, ctx.user.id, text.trim(), replyTo||null, now]);
-    const message = { id, channel, text: text.trim(), replyTo: replyTo||null, createdAt: now, author: publicUser(ctx.user) };
+    const message = this.persistMessage(ctx.user, channel, text.trim(), replyTo||null);
     this.publish('channel:'+channel, { type: 'chat:message', message });
-    if (channel.startsWith('project:')) {
-      const projectId = channel.slice('project:'.length);
-      const members = all(`SELECT u.* FROM users u JOIN project_members pm ON pm.user_id = u.id WHERE pm.project_id = ?`, [projectId]);
-      for (const m of members) if (m.id !== ctx.user.id) this.sendToUser(m.id, {
-        type: 'notification',
-        notification: { id: nanoid(10), type: 'chat:mention', title: `${ctx.user.name} in #${channel}`, body: text.trim().slice(0,120), createdAt: now, read: false }
-      });
+    if (channel.startsWith('dm:')) {
+      // DM participants may not be subscribed to the dm channel yet — push onto
+      // their always-on user channels + a notification.
+      const [a, b] = channel.slice(3).split(':');
+      for (const uid of [a, b]) {
+        if (uid !== ctx.user.id) {
+          this.sendToUser(uid, { type: 'chat:message', message });
+          this.sendToUser(uid, {
+            type: 'notification',
+            notification: { id: nanoid(10), type: 'chat:dm', title: `${ctx.user.name} · direct message`, body: message.text.slice(0,120), createdAt: message.createdAt, read: false, channel }
+          });
+        }
+      }
+    } else {
+      this.notifyChannelMembers(message, ctx.user);
     }
   }
   async handleTyping(ctx, msg) {
